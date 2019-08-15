@@ -232,9 +232,18 @@ class ConfocalGui(GUIBase):
         self._mw.depth_refocus_ViewWidget_2.setLabel('left', 'Fluorescence', units='c/s')
 
         # Add crosshair to the xy refocus scan
-        self._mw.xy_refocus_ViewWidget_2.toggle_crosshair(True, movable=False)
-        self._mw.xy_refocus_ViewWidget_2.set_crosshair_pos((self._optimizer_logic._initial_pos_x,
-                                                        self._optimizer_logic._initial_pos_y))
+        self.vLine = pg.InfiniteLine(
+            pen={'color': palette.green, 'width': 3},
+            pos=50,
+            angle=90,
+            movable=False)
+        self.hLine = pg.InfiniteLine(
+            pen={'color': palette.green, 'width': 3},
+            pos=50,
+            angle=0,
+            movable=False)
+        self._mw.xy_refocus_ViewWidget_2.addItem(self.vLine, ignoreBounds=True)
+        self._mw.xy_refocus_ViewWidget_2.addItem(self.hLine, ignoreBounds=True)
 
         # Set the state button as ready button as default setting.
         self._mw.action_stop_scanning.setEnabled(False)
@@ -620,6 +629,94 @@ class ConfocalGui(GUIBase):
         self._osd.fit_tab = FitParametersWidget(self._optimizer_logic.z_params)
         self._osd.settings_tabWidget.addTab(self._osd.fit_tab, "Fit Params")
 
+        ############################################################
+        # Set up the template tab
+        ############################################################
+
+        self._osd.activate_xy_template_checkBox.setChecked(self._optimizer_logic.fit_type == 'xy_template')
+
+        self._osd.acquire_xy_template_image_Button.clicked.connect(self.acquire_xy_template_image)
+        self._osd.acquire_z_template_image_Button.clicked.connect(self.acquire_z_template)
+        self._osd.activate_xy_template_checkBox.toggled.connect(self.activate_template_changed)
+        self._osd.activate_z_template_checkBox.toggled.connect(self.activate_template_changed)
+
+        # Load the image for the optimizer tab
+        self.xy_template_image = pg.ImageItem(
+            image=self._optimizer_logic.xy_template_image[:, :, 3 + self.opt_channel],
+            axisOrder='row-major')
+
+        template_x_length = self._optimizer_logic.xy_template_image[:, :, 0].max() \
+                            - self._optimizer_logic.xy_template_image[:, :, 0].min()
+        template_y_length = self._optimizer_logic.xy_template_image[:, :, 1].max() \
+                            - self._optimizer_logic.xy_template_image[:, :, 1].min()
+
+        self.xy_template_image.setRect(
+            QtCore.QRectF(
+                -template_x_length / 2.,
+                -template_y_length / 2.,
+                template_x_length,
+                template_y_length
+            )
+        )
+
+        # Add the display item to the xy and depth VieWidget, which was defined in
+        # the UI file.
+        self._osd.template_xy_plot_widget.addItem(self.xy_template_image)
+
+        # Labelling axes
+        self._osd.template_xy_plot_widget.setLabel('bottom', 'X relative', units='m')
+        self._osd.template_xy_plot_widget.setLabel('left', 'Y relative', units='m')
+
+        self.xy_template_image.setLookupTable(self.my_colors.lut)
+
+        # Add crosshair to the xy refocus scan
+        self.template_vLine = pg.InfiniteLine(
+            pen={'color': palette.green, 'width': 3},
+            pos=self._optimizer_logic.template_cursor[0],
+            angle=90,
+            movable=True)
+        self.template_hLine = pg.InfiniteLine(
+            pen={'color': palette.green, 'width': 3},
+            pos=self._optimizer_logic.template_cursor[1],
+            angle=0,
+            movable=True)
+        self._osd.template_xy_plot_widget.addItem(self.template_vLine, ignoreBounds=True)
+        self._osd.template_xy_plot_widget.addItem(self.template_hLine, ignoreBounds=True)
+
+        self.template_vLine.sigPositionChangeFinished.connect(self.template_cursor_changed)
+        self.template_hLine.sigPositionChangeFinished.connect(self.template_cursor_changed)
+
+        #######################################################################
+        # Z template as data plot with one line for crosshair positions
+        #######################################################################
+
+        self.depth_template_image = pg.PlotDataItem(
+            x=self._optimizer_logic.zimage_template_Z_values,
+            y=self._optimizer_logic.z_template_data[:, self._optimizer_logic.opt_channel],
+            pen=pg.mkPen(palette.c1, style=QtCore.Qt.DotLine),
+            symbol='o',
+            symbolPen=palette.c1,
+            symbolBrush=palette.c1,
+            symbolSize=7
+        )
+
+        # Add the display item to the xy and depth VieWidget, which was defined in
+        # the UI file.
+        self._osd.template_z_plot_widget.addItem(self.depth_template_image)
+
+        self._osd.template_z_plot_widget.setLabel('bottom', 'Z position', units='m')
+        self._osd.template_z_plot_widget.setLabel('left', 'Fluorescence', units='c/s')
+        self._osd.template_z_plot_widget.showGrid(x=True, y=True)
+
+        self.template_zLine = pg.InfiniteLine(
+            pen={'color': palette.green, 'width': 3},
+            pos=self._optimizer_logic.template_cursor[2],
+            angle=90,
+            movable=True)
+        self._osd.template_z_plot_widget.addItem(self.template_zLine, ignoreBounds=True)
+
+        self.template_zLine.sigPositionChangeFinished.connect(self.template_cursor_changed)
+
         # write the configuration to the settings window of the GUI.
         self.keep_former_optimizer_settings()
 
@@ -829,7 +926,7 @@ class ConfocalGui(GUIBase):
         Also, if the refocus was initiated here in confocalgui then we need to handle the
         "returned" optimal position.
         """
-        if caller_tag == 'confocalgui':
+        if caller_tag in ('confocalgui', 'xy_template_image', 'z_template_image'):
             self._scanning_logic.set_position(
                 'optimizer',
                 x=optimal_pos[0],
@@ -837,6 +934,11 @@ class ConfocalGui(GUIBase):
                 z=optimal_pos[2],
                 a=0.0
             )
+
+        # Crosshair in optimizer
+        self.vLine.setValue(self._optimizer_logic.optim_pos_x)
+        self.hLine.setValue(self._optimizer_logic.optim_pos_y)
+
         self.enable_scan_actions()
 
     def set_history_actions(self, enable):
@@ -849,6 +951,112 @@ class ConfocalGui(GUIBase):
             self._mw.actionBack.setEnabled(True)
         else:
             self._mw.actionBack.setEnabled(False)
+
+    def acquire_xy_template_image(self):
+        """ Start to take a template image. """
+        self.disable_scan_actions()
+        self.update_optimizer_settings()
+
+        # Get the current crosshair position to send to optimizer
+        crosshair_pos = self._scanning_logic.get_position()
+        self.sigStartOptimizer.emit(crosshair_pos, 'xy_template_image')
+
+    def acquire_z_template(self):
+        """ Start to take a template image. """
+        self.disable_scan_actions()
+        self.update_optimizer_settings()
+
+        # Get the current crosshair position to send to optimizer
+        crosshair_pos = self._scanning_logic.get_position()
+        self.sigStartOptimizer.emit(crosshair_pos, 'z_template_image')
+
+    def activate_template_changed(self):
+        """ Checks the template fits that are acitvated and hands them to the logic.
+
+        @return int: error code (0:OK, -1..-3:error)
+        """
+
+        xy_template = self._osd.activate_xy_template_checkBox.isChecked()
+        z_template = self._osd.activate_z_template_checkBox.isChecked()
+
+        xy_template_image = self._optimizer_logic.xy_template_image[:, :, 3 + self._optimizer_logic.opt_channel]
+        z_template_data = self._optimizer_logic.z_template_data[:, self._optimizer_logic.opt_channel]
+
+        x_template_resolution = self._optimizer_logic.xy_template_image[:, :, 0].max() \
+                                - self._optimizer_logic.xy_template_image[:, :, 0].min()
+        y_template_resolution = self._optimizer_logic.xy_template_image[:, :, 1].max() \
+                                - self._optimizer_logic.xy_template_image[:, :, 1].min()
+        z_template_resolution = self._optimizer_logic.zimage_template_Z_values.max() \
+                                - self._optimizer_logic.zimage_template_Z_values.min()
+
+        # check dimensionality of template against optimizer
+        if xy_template and (len(xy_template_image) != self._osd.xy_optimizer_resolution_SpinBox.value()
+                            or abs(x_template_resolution - self._osd.xy_optimizer_range_DoubleSpinBox.value()) > 1e-9
+                            or abs(y_template_resolution - self._osd.xy_optimizer_range_DoubleSpinBox.value()) > 1e-9):
+                self.log.error('The size of the XY template does not match the refocus resolution.\n'
+                               'Template: {0:d} - ({1:.3f}, {2:.3f}); Refocus: {3:d} - ({4:.3f}, {5:.3f})'
+                               ''.format(len(xy_template_image),
+                                         x_template_resolution * 1e6,
+                                         y_template_resolution * 1e6,
+                                         self._osd.xy_optimizer_resolution_SpinBox.value(),
+                                         self._osd.xy_optimizer_range_DoubleSpinBox.value() * 1e6,
+                                         self._osd.xy_optimizer_range_DoubleSpinBox.value() * 1e6))
+                self._osd.activate_xy_template_checkBox.setChecked(False)
+                return -1
+
+        if z_template and (len(z_template_data) != self._osd.z_optimizer_resolution_SpinBox.value()
+                           or abs(z_template_resolution - self._osd.z_optimizer_range_DoubleSpinBox.value()) > 1e-9):
+                self.log.error('The size of the Z template does not match the refocus resolution.\n'
+                               'Template: {0:d} - {1:.3f}; Refocus: {2:d} - {3:.3f}'
+                               ''.format(len(z_template_data),
+                                         z_template_resolution * 1e6,
+                                         self._osd.z_optimizer_resolution_SpinBox.value(),
+                                         self._osd.z_optimizer_range_DoubleSpinBox.value() * 1e6))
+                self._osd.activate_z_template_checkBox.setChecked(False)
+                return -2
+
+        # check if template data exists
+        if xy_template and not z_template:
+            if np.max(xy_template_image) != 0:
+                self._optimizer_logic.fit_type = 'xy_template'
+                return 0
+            else:
+                self.log.error('No XY template image was taken at this time. '
+                               'Therefore the fit method cannot be set to template fitting.')
+                self._osd.activate_xy_template_checkBox.setChecked(False)
+                return -1
+        elif not xy_template and z_template:
+            if np.max(z_template_data) != 0:
+                self._optimizer_logic.fit_type = 'z_template'
+                return 0
+            else:
+                self.log.error('No Z template image was taken at this time. '
+                               'Therefore the fit method cannot be set to template fitting.')
+                self._osd.activate_z_template_checkBox.setChecked(False)
+                return -2
+        elif xy_template and z_template:
+            if np.max(z_template_data) != 0 and np.max(xy_template_image) != 0:
+                self._optimizer_logic.fit_type = 'all_template'
+                return 0
+            elif np.max(z_template_data) == 0:
+                self.log.error('No Z template image was taken at this time. '
+                               'Therefore the fit method cannot be set to template fitting.')
+                self._osd.activate_z_template_checkBox.setChecked(False)
+                return -2
+            elif np.max(xy_template_image) == 0:
+                self.log.error('No XY template image was taken at this time. '
+                               'Therefore the fit method cannot be set to template fitting.')
+                self._osd.activate_xy_template_checkBox.setChecked(False)
+                return -1
+            else:
+                self.log.error('No Z template and XY template image was taken at this time. '
+                               'Therefore the fit method cannot be set to template fitting.')
+                self._osd.activate_xy_template_checkBox.setChecked(False)
+                self._osd.activate_z_template_checkBox.setChecked(False)
+                return -3
+        else:
+            self._optimizer_logic.fit_type = 'normal'
+            return 0
 
     def menu_settings(self):
         """ This method opens the settings menu. """
@@ -899,8 +1107,10 @@ class ConfocalGui(GUIBase):
         self._optimizer_logic.optimizer_XY_res = self._osd.xy_optimizer_resolution_SpinBox.value()
         self._optimizer_logic.refocus_Z_size = self._osd.z_optimizer_range_DoubleSpinBox.value()
         self._optimizer_logic.optimizer_Z_res = self._osd.z_optimizer_resolution_SpinBox.value()
-        self._optimizer_logic.set_clock_frequency(self._osd.count_freq_SpinBox.value())
+        self._optimizer_logic.set_clock_frequency(self._osd.count_freq_SpinBox.value(),
+                                                  self._osd.template_count_frequency_spinBox.value())
         self._optimizer_logic.return_slowness = self._osd.return_slow_SpinBox.value()
+        self._optimizer_logic.template_return_slowness = self._osd.template_slowness_spinBox.value()
         self._optimizer_logic.hw_settle_time = self._osd.hw_settle_time_SpinBox.value() / 1000
         self._optimizer_logic.do_surface_subtraction = self._osd.do_surface_subtraction_CheckBox.isChecked()
         index = self._osd.opt_channel_ComboBox.currentIndex()
@@ -912,8 +1122,24 @@ class ConfocalGui(GUIBase):
         self._optimizer_logic.check_optimization_sequence()
         # z fit parameters
         self._optimizer_logic.use_custom_params = self._osd.fit_tab.paramUseSettings
+
+        template_x_length = self._optimizer_logic.xy_template_image[:, :, 0].max() \
+                            - self._optimizer_logic.xy_template_image[:, :, 0].min()
+        template_y_length = self._optimizer_logic.xy_template_image[:, :, 1].max() \
+                            - self._optimizer_logic.xy_template_image[:, :, 1].min()
+
+        self.xy_template_image.setRect(
+            QtCore.QRectF(
+                -template_x_length / 2.,
+                -template_y_length / 2.,
+                template_x_length,
+                template_y_length
+            )
+        )
+
         self.update_roi_xy_size()
         self.update_roi_depth_size()
+        self.activate_template_changed()
 
     def keep_former_optimizer_settings(self):
         """ Keep the old settings and restores them in the gui. """
@@ -923,6 +1149,8 @@ class ConfocalGui(GUIBase):
         self._osd.z_optimizer_resolution_SpinBox.setValue(self._optimizer_logic.optimizer_Z_res)
         self._osd.count_freq_SpinBox.setValue(self._optimizer_logic._clock_frequency)
         self._osd.return_slow_SpinBox.setValue(self._optimizer_logic.return_slowness)
+        self._osd.template_count_frequency_spinBox.setValue(self._optimizer_logic._template_clock_frequency)
+        self._osd.template_slowness_spinBox.setValue(self._optimizer_logic.template_return_slowness)
         self._osd.hw_settle_time_SpinBox.setValue(self._optimizer_logic.hw_settle_time * 1000)
         self._osd.do_surface_subtraction_CheckBox.setChecked(self._optimizer_logic.do_surface_subtraction)
 
@@ -965,10 +1193,13 @@ class ConfocalGui(GUIBase):
     def depth_scan_clicked(self):
         """ Start depth scan. """
         self.disable_scan_actions()
-        self._scanning_logic.start_scanning(zscan=True)
+        self._scanning_logic.start_scanning(zscan=True, tag='gui')
 
     def refocus_clicked(self):
         """ Start optimize position. """
+        if self.activate_template_changed() < 0:
+            return
+
         self.disable_scan_actions()
         # Get the current crosshair position to send to optimizer
         crosshair_pos = self._scanning_logic.get_position()
@@ -1392,6 +1623,17 @@ class ConfocalGui(GUIBase):
         if self._scanning_logic.module_state() != 'locked':
             self.enable_scan_actions()
 
+    def template_cursor_changed(self):
+        if self._optimizer_logic.module_state() == 'locked':
+            self.log.error('The template cursor cannot be changed, while the optimizer is scanning.')
+            self.template_vLine.setValue(self._optimizer_logic.template_cursor[0])
+            self.template_hLine.setValue(self._optimizer_logic.template_cursor[1])
+            self.template_zLine.setValue(self._optimizer_logic.template_cursor[2])
+        else:
+            self._optimizer_logic.template_cursor[0] = self.template_vLine.value()
+            self._optimizer_logic.template_cursor[1] = self.template_hLine.value()
+            self._optimizer_logic.template_cursor[2] = self.template_zLine.value()
+
     def refresh_refocus_image(self):
         """Refreshes the xy image, the crosshair and the colorbar. """
         ##########
@@ -1404,6 +1646,14 @@ class ConfocalGui(GUIBase):
             colorscale_max = np.max(xy_optimizer_image[np.nonzero(xy_optimizer_image)])
 
             self.xy_refocus_image.setImage(image=xy_optimizer_image, levels=(colorscale_min, colorscale_max))
+
+        xy_template_image = self._optimizer_logic.xy_template_image[:, :, 3 + self._optimizer_logic.opt_channel]
+        if np.max(xy_template_image) != 0:
+            template_colorscale_min = np.min(xy_template_image[np.nonzero(xy_template_image)])
+            template_colorscale_max = np.max(xy_template_image[np.nonzero(xy_template_image)])
+
+            self.xy_template_image.setImage(image=xy_template_image,
+                                           levels=(template_colorscale_min, template_colorscale_max))
         ##########
         # TODO: does this need to be reset every time this refresh function is called?
         # Is there a better way?
@@ -1423,6 +1673,12 @@ class ConfocalGui(GUIBase):
         self.depth_refocus_image.setData(
             self._optimizer_logic._zimage_Z_values,
             self._optimizer_logic.z_refocus_line[:, self._optimizer_logic.opt_channel])
+
+        # data from chosen channel of the template
+        self.depth_template_image.setData(
+            self._optimizer_logic.zimage_template_Z_values,
+            self._optimizer_logic.z_template_data[:, self._optimizer_logic.opt_channel])
+
         # fit made from the data
         self.depth_refocus_fit_image.setData(
             self._optimizer_logic._fit_zimage_Z_values,

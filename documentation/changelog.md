@@ -75,6 +75,8 @@ This can be used to specify the axis labels for the measurement (excluding units
 * Added a how-to-get-started guide to the documentation
 * Bug fixes and improvements for the scientific SpinBox introduced in v0.9 
 * POI manager keeps POIs as StatusVar across restarts and fixes to distance measurement
+* Added a way to fit the confocal optimizer with a template and specify offset from that. 
+In the process minor bug-fixes on the optimizer and stability improvements.
 * Various stability improvements and minor bug fixes
 * Update conda environment to more recent versions of packages
 * Fix installation procedure for the conda environment in windows by using powershell in the cmd and catch with that potential exceptions (e.g. if conda environment is not present).
