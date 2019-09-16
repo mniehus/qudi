@@ -29,7 +29,9 @@ import traceback
 
 from qtpy import QtCore
 from collections import OrderedDict
-from core.module import StatusVar, Connector, ConfigOption
+from core.statusvariable import StatusVar
+from core.connector import Connector
+from core.configoption import ConfigOption
 from core.util.modules import get_main_dir, get_home_dir
 from core.util.helpers import natural_sort
 from core.util.network import netobtain
@@ -54,9 +56,6 @@ class SequenceGeneratorLogic(GenericLogic):
     This logic is also responsible to manipulate and read back hardware settings for
     waveform/sequence playback (pp-amplitude, sample rate, active channels etc.).
     """
-
-    _modclass = 'sequencegeneratorlogic'
-    _modtype = 'logic'
 
     # declare connectors
     pulsegenerator = Connector(interface='PulserInterface')
@@ -1103,6 +1102,7 @@ class SequenceGeneratorLogic(GenericLogic):
                            ''.format(predefined_sequence_name))
             self.sigPredefinedSequenceGenerated.emit(None, False)
             raise
+
         # Save objects
         for block in blocks:
             self.save_block(block)
@@ -1111,9 +1111,11 @@ class SequenceGeneratorLogic(GenericLogic):
             self.save_ensemble(ensemble)
 
         if self.pulse_generator_constraints.sequence_option == SequenceOption.FORCED and len(sequences) < 1:
-            self.log.info('Adding default sequence for: {0:s}'.format(kwargs_dict.get('name')))
+            self.log.info('Adding default sequence for: {0:s}'.format(predefined_sequence_name))
             self._add_default_sequence(ensembles, sequences)
-            self.log.debug('New default PulseSequence is: {0:s} length {1:d}'.format(sequences[0].name, len(sequences)))
+            if len(sequences) > 0:
+                self.log.debug('New default PulseSequence is: {0:s} length {1:d}'
+                               ''.format(sequences[0].name, len(sequences)))
 
         for sequence in sequences:
             sequence.sampling_information = dict()

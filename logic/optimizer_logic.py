@@ -26,7 +26,8 @@ import scipy.signal as sig
 import scipy.ndimage as ndi
 
 from logic.generic_logic import GenericLogic
-from core.module import Connector, ConfigOption, StatusVar
+from core.connector import Connector
+from core.statusvariable import StatusVar
 from core.util.mutex import Mutex
 
 import matplotlib.pylab as plt
@@ -35,9 +36,6 @@ class OptimizerLogic(GenericLogic):
 
     """This is the Logic class for optimizing scanner position on bright features.
     """
-
-    _modclass = 'optimizerlogic'
-    _modtype = 'logic'
 
     # declare connectors
     confocalscanner1 = Connector(interface='ConfocalScannerInterface')
