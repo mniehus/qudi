@@ -486,7 +486,7 @@ class OptimizerLogic(GenericLogic):
             return
 
         fit_x, fit_y = np.meshgrid(self._X_values, self._Y_values)
-        xy_fit_data = self.xy_refocus_image[:, :, 3].ravel()
+        xy_fit_data = self.xy_refocus_image[:, :, 3+self.opt_channel].ravel()
         axes = np.empty((len(self._X_values) * len(self._Y_values), 2))
         axes = (fit_x.flatten(), fit_y.flatten())
 
